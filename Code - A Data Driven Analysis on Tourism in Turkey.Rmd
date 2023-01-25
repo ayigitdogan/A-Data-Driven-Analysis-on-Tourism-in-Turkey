@@ -1,0 +1,451 @@
+---
+title: "A Data Driven Analysis on Tourism in Turkey"
+author: "Ahmet Yiğit Doğan"
+date: "13 April, 2022"
+output: 
+    html_document:
+        toc: true
+        toc_depth: 2
+        number_sections: true
+        toc_float: true
+        code_folding: hide
+        fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(  message     = FALSE,
+	                    warning     = FALSE,
+                        fig.align   = "center")
+```
+
+# Introduction
+
+Being famous for a variety of historical sites and seaside resorts along its Aegean and Mediterranean Sea coasts, Turkey employs tourism as one of the major factors of its economy. Besides being one of the most popular tourist destinations in the world when it comes to beach holidays and natural/historical tours, healthcare-focused visits are also seeming to contribute to tourism activity in Turkey in recent years.
+
+This data-driven work is dedicated to investigating insights on the number of visitors and tourism incomes of Turkey from 2009 to 2022 by taking the factors such as exchange rates and customer price indices into consideration.
+
+The data used in the analysis are extracted from [Electronic Data Delivery System](https://evds2.tcmb.gov.tr/), which is provided by the Central Bank of the Republic of Turkey, and from [Google Trends](https://trends.google.com/trends/). One can access the *xlsx* and *csv* files [here](https://github.com/ayigitdogan/A-Data-Driven-Analysis-on-Tourism-in-Turkey/Data).
+
+$~$
+
+# Library Imports and Data Preprocessing
+
+The mainly used libraries in the code are *"ggplot2"* and *"tidyverse"*, along with several supplementary ones. The time series are created as *"data.frame"* objects. Additional code can be found below for alternative modeling with *"zoo"* and *"xts"*.
+
+```{r toolbox-and-data}
+
+# Library imports
+
+library(ggplot2)
+library(ggcorrplot)
+library(directlabels)
+library(tidyverse)
+library(data.table)
+library(readxl)
+library(caret)
+library(zoo)
+library(xts)
+
+# Setting the working directory
+
+setwd(getwd())
+
+# Importing the data sets
+
+tourism         <-  read_excel("Data/tourism_data.xlsx")
+tourism$Date    <-  as.Date(as.yearmon(tourism$Date))
+#tourism        <-  xts(tourism[,-1], order.by = tourism$Date)
+
+tourists        <-  read_excel("Data/tourist_counts.xlsx")
+tourists$Date   <-  as.Date(as.yearmon(tourists$Date))
+#tourists       <-  xts(tourists[,-1], order.by = tourists$Date)
+
+exchange        <-  read_excel("Data/exchange_rates.xlsx")
+exchange$Date   <-  as.Date(as.yearmon(exchange$Date))
+#exchange       <-  xts(exchange[,-1], order.by = exchange$Date)
+
+prices          <-  read_excel("Data/consumer_prices.xlsx")
+prices$Date     <-  as.Date(as.yearmon(prices$Date))
+#prices         <-  xts(prices[,-1], order.by = prices$Date)
+
+# Merging the data into one data frame
+
+df      <-  list(tourism, tourists, exchange, prices) %>% 
+            reduce(full_join, by = "Date")
+#data   <-  merge(tourism, tourists, exchange, prices)
+
+# Importing the Google Trends data
+
+turkish_lira_ww                 <-  fread("Data/turkish_lira_ww.csv")
+colnames(turkish_lira_ww)       <-  c("Date", "Worldwide")
+turkish_lira_ww$Date            <-  as.Date(as.yearmon(turkish_lira_ww$Date))
+
+turkish_lira_tr                 <-  fread("Data/turkish_lira_tr.csv")
+colnames(turkish_lira_tr)       <-  c("Date", "Turkey")
+turkish_lira_tr$Date            <-  as.Date(as.yearmon(turkish_lira_tr$Date))
+turkish_lira_tr$Turkey          <-  as.integer(turkish_lira_tr$Turkey)
+
+holiday_in_turkey               <-  fread("Data/holiday_in_turkey.csv")
+colnames(holiday_in_turkey)     <-  c("Date", "holidayInTurkey")
+holiday_in_turkey$Date          <-  as.Date(as.yearmon(holiday_in_turkey$Date))
+
+treatment_in_turkey             <-  fread("Data/treatment_in_turkey.csv")
+colnames(treatment_in_turkey)   <-  c("Date", "treatmentInTurkey")
+treatment_in_turkey$Date        <-  as.Date(as.yearmon(treatment_in_turkey$Date))
+
+# Joining the Google Trends data to the main data frame
+
+df  <-  list(df, turkish_lira_ww, turkish_lira_tr,
+             holiday_in_turkey, treatment_in_turkey) %>% 
+        reduce(left_join, by = "Date")
+
+```
+
+# Data Visualizations and Comments
+
+## Figure 1: USD and Euro Exchange Rates and Total Tourists
+
+```{r usd-euro-tourists, fig.show="hold", out.width="50%", fig.cap="Figure 1. Left: USD and Euro Exchange Rates through Years (in TL), Right: Total Tourist Visits to Turkey"}
+
+# Figure 1 Left
+
+df %>% select(Date, USD, Euro) %>%
+    pivot_longer(cols = -1) %>%
+    
+    ggplot(aes(x        = Date,
+               y        = value,
+               color    = name,
+               group    = name))                                        +
+    
+    geom_line(size = 0.75)                                              +
+    
+    geom_dl(aes(label = name),
+            method = list(  dl.trans(x = x + 0.2),
+                            "smart.grid"))                              +
+    
+    labs(y = "Buying Price (in TL)")                                    +
+    
+    theme(legend.position   = "none",
+           axis.title.x     = element_blank())
+
+# Figure 1 Right
+
+ggplot(df, aes( x = Date, 
+                y = Total))         +
+    
+    geom_line(color = "firebrick3",
+              size  = 0.75)         +
+    
+    labs(y = "Total Visitors")      +
+    
+    theme(axis.title.x = element_blank())
+
+```
+
+$~$
+
+One can notice the seasonality, as expected, and an increasing trend from the latter plot, when the effect of COVID-19 in 2020 and July 15 Coup Attempt in 2016 are excluded. On the left-hand side, the rise of two of the most popular units of currency against Turkish Lira is obvious. Ignoring the effects of the mentioned exceptional cases, it is worth investigating further the relation between Turkey visitors and exchange rates to decide whether Turkey became a spot for cheap and quality holidays in the pre-pandemic period.
+
+$~$
+
+## Figure 2: Tourist Visits by Continents
+
+```{r visits-by-continents, fig.cap="Figure 2. Tourist Visits by Continents through Years"}
+
+# Figure 2
+
+df1 <- df %>%
+        select(Date, Africa, America, Asia, CIS, Europe) %>%
+        gather(key = "Continent", value = "value", -Date)
+
+ggplot(df1, aes(x = Date, y = value))                           + 
+    
+    geom_line(aes(color = Continent), size=0.75)                +
+    
+    scale_x_date(date_breaks = "2 years",
+                 date_labels = "%Y")                            +
+    
+    labs(y = "Number of Tourists")                              +
+    
+    theme(axis.title.x = element_blank())
+
+```
+
+$~$
+
+Nothing is surprising when the data is decomposed into continents. As can be expected, the effect of significant cases and seasonality can be observed again. One thing worth mentioning in this plot is the relative stability among the continents.
+
+$~$
+
+## Figure 3: Correlation Matrices
+
+```{r correlation-matrices, fig.show="hold", fig.cap="Figure 3. Correlation Matrices. Above: Tourist Counts of Continents and Customer Price Indices, Below: Number of Visitors from Several Countries and Corresponding Currencies"}
+
+# Figure 3 Above
+
+df2 <- df %>%
+    select(General, Cultural, `Package Holidays`,
+           `Hotel, Cafe and Restaurants`, Accomodation,
+           Africa, America, Asia, CIS, Europe)
+
+df2_correl_info <- cor(df2[complete.cases(df2),])
+
+# ggpairs(df2)
+
+ggcorrplot( df2_correl_info,
+            outline.color   = "white",
+            hc.order        = TRUE,
+            type            = "lower",
+            lab             = TRUE,
+            ggtheme         = ggplot2::theme_gray,
+            lab_size        = 2.25,
+            colors          = c("#6D9EC1", "white", "#E46726"))
+
+# Figure 3 Below
+
+df3 <- df %>%
+    select(Bulgaria, Denmark, Sweden, Romania, Russia,
+           USA, China, Iran, Japan, `Saudi Arabia`,
+           `Bulgarian Lev`, `Danish Crone`, `Swedish Crone`,
+           `Romenian Leu`, `Russian Rouble`, USD, `Chinese Yuan`,
+           `Iranian Riyal`, `Japanese Yen`, `Saudi Arabian Riyal`)
+
+df3_correl_info <- cor(df3[complete.cases(df3),])
+
+ggcorrplot( df3_correl_info,
+            outline.color   = "white",
+            hc.order        = TRUE,
+            type            = "lower",
+            ggtheme         = ggplot2::theme_gray,
+            colors          = c("#6D9EC1", "white", "#E46726"))
+
+```
+
+$~$
+
+These two correlation matrices can be generated to check whether there is a relationship between the tourist counts and price increases in Turkey, or individual exchange rates of countries. It seems like these relationships are significantly weak, even there are somewhat remarkable reverse correlations compared to expected for Africa and Japan, implying that prices and exchange rates are not the primarily resorted criteria for the tourists.
+
+$~$
+
+## Figure 4: Google Searches for "Turkish Lira"
+
+```{r search-turkish-lira, fig.cap="Figure 4. Google Searches for 'Turkish Lira'"}
+
+df4 <- df %>%
+        select(Date, Worldwide, Turkey) %>%
+        gather(key = "key", value = "value", -Date)
+
+ggplot(df4, aes(x = Date, y = value, 
+                group = key, color = key))              +
+    
+    geom_line(size=0.75)                                + 
+    
+    scale_x_date(date_breaks = "2 years",
+                 date_labels = "%Y")                    +
+    
+    theme(  legend.position = "none",
+            axis.title.x    = element_blank(),             
+            axis.title.y    = element_blank())          +
+    
+    geom_dl(aes(label = key),
+            method = list(  dl.trans(x = x + .2),
+                            "smart.grid"))
+
+```
+
+$~$
+
+To collect more evidence that exchange rates have little influence on tourist numbers, worldwide Google searches for "Turkish Lira" can be compared to the same search queries from Turkey. In *Figure 4*, it is clearly seen that these two data sets show a parallel pattern, which implies that most of the Google search for "Turkish Lira" is performed by Turkish people. Therefore, it can be concluded that exchange rates are not one of the important criteria considered by tourists.
+
+$~$
+
+## Figure 5: Outgoing Tourists and Exchange Rates
+
+```{r usd-outgoing-standardized, fig.cap="Figure 5. Outgoing Tourists from Turkey and USD Buying Price Through Years (Normalized)"}
+
+# Normalizing the main data frame for a better comparison
+
+normalisedDf <- predict(preProcess(df,
+                                   method = c("range")),
+                        as.data.frame(df))
+
+# Figure 5
+
+df5 <- normalisedDf %>%
+        select(Date, USD, `Outgoing Citizens`) %>%
+        gather(key = "key", value = "value", -Date)
+
+ggplot(df5, aes(x = Date, y = value, 
+                group = key, color = key))              +
+    
+    geom_line(size=0.75)                                + 
+    
+    scale_x_date(date_breaks = "2 years",
+                 date_labels = "%Y")                    +
+    
+    scale_x_date(date_breaks = "2 years",
+                 date_labels = "%Y")                    +
+    
+    theme(  legend.position = "none",
+            axis.title.x    = element_blank(),             
+            axis.title.y    = element_blank())          +
+    
+    geom_dl(aes(label   = key),
+                method  = list( dl.trans(x = x + .2),
+                                "smart.grid"))            
+    
+```
+
+$~$
+
+When it comes to outgoing Turkish tourists, an increasing trend until 2019 is observed, and consequently a peak in 2019. Just before the peak, there is a remarkable decrease, which can be associated with the unusual decrease in the value of Turkish Lira against USD in 2018. In the post-pandemic period, the beginning of the recovery period can be observed from the plot, yet, still there is a need for time for the numbers to catch the previous peaks. Last but not least, the extreme increase in the USD exchange rates after the pandemic might potentially extend this recovery period.
+
+$~$
+
+## Figure 6: USD Exchange Rates Boxplot
+
+```{r usd-boxplot, fig.height=3, fig.cap="Figure 6. Boxplot for USD Exchange Rates Through Years"}
+
+# Figure 6
+
+ggplot(df,aes(x = factor(year(Date)),
+              y = USD))                             +
+    
+    geom_boxplot(aes(fill = factor(year(Date))))    + 
+    
+    labs(y = "USD Buying Price (in TL)")            +
+    
+    theme(legend.position   = "none",
+          axis.title.x      = element_blank(), 
+          axis.title.y      = element_blank())
+
+```
+
+$~$
+
+At the first glance, this plot does not seem to be helpful, since most of the boxes are displayed collapsed. However, the wider ones clearly indicate the years in which major changes in USD buying prices happened: 2018, and from 2020 to today, which provides an explanation for the case in the previous plot. Besides that, the exponential pattern of the increase is more clear in this view.
+
+$~$
+
+## Figure 7: A Boxplot for the Turkish and Foreign Visitors
+
+```{r citizens-foreigners-boxplot, fig.cap = "Figure 7. Boxplot for Foreign Visitors and the Turkish Visitors Who Live Abroad"}
+
+# Figure 7
+
+df6 <- df %>%
+        select(Date, `Foreign Visitors`, `Citizen Visitors`) %>%
+        gather(key = "key", value = "value", -Date)
+
+ggplot(df6, aes(x = Date, y = value, 
+                group = key, color = key))                  +
+    
+    geom_boxplot()                                          +
+    
+    labs(y = "Number of Visitors")                          +
+    
+    theme(plot.title   = element_text(hjust = 0.5),
+          axis.title.x = element_blank(),
+          axis.text.x  = element_blank(),
+          axis.ticks.x = element_blank(),
+          legend.title = element_blank())
+
+```
+
+$~$
+
+This simple plot provides a comparison between two types of tourists: foreigners and Turkish citizens who live abroad. The number of foreigners is decisively higher, thus, the effect of Turkish citizens on tourism can be regarded as almost negligible. This claim will be checked further in the next figure.
+
+$~$
+
+## Figure 8: Tourism Incomes Histogram
+
+```{r incomes-histogram, fig.cap = "Figure 8. Tourism Incomes from Turkish and Foreign Visitors Histogram"}
+
+# Figure 8
+
+df7 <- df %>%
+        select(Date, `Foreign Income`, `Citizen Income`) %>%
+        gather(key = "key", value = "value", -Date)
+
+ggplot(df7, aes(    x       = value,
+                    fill    = key))                         +
+    
+    geom_histogram()                                        +
+
+    labs(y = "Income (in Million US Dollars)")              +
+    
+    theme(plot.title   = element_text(hjust = 0.5),
+          axis.title.x = element_blank(),
+          legend.title = element_blank())
+
+```
+
+$~$
+
+This histogram confirms the previously mentioned claim: The major part of the tourism income comes from foreign tourists.
+
+$~$
+
+## Figure 9: Google Searches for "Holiday in Turkey"
+
+```{r search-holiday-in-turkey, fig.cap="Figure 9. Google Searches for 'Holiday in Turkey'"}
+
+# Figure 9
+
+ggplot(df, aes(x = Date))                   +
+    
+    geom_line(aes(y = holidayInTurkey),
+              color = "firebrick3",
+              size = 0.75)                  +
+    
+    geom_smooth(aes(y = holidayInTurkey),
+                method = "auto")            +
+    
+    labs(y = "Popularity")                  +
+    
+    theme(axis.title.x = element_blank())
+
+```
+
+$~$
+
+The worldwide Google searches for "Holiday in Turkey" draw an obviously decreasing trend. Taking into consideration that internet is arguably the most important tool to make quick research for holiday opportunities, and Google is the most popular search engine, the plot suggests a serious loss of spotlight for Turkey in terms of tourism.
+
+As of the moment, this search query is one of the most popular among the ones which are related to both Turkey and tourism, according to Google Trends. Thus, this topic seems to be worth initiating more comprehensive research for, to determine whether the tourist attractions in Turkey need a digital marketing campaign.
+
+$~$
+
+## Figure 10: Google Searches for "Treatment in Turkey"
+
+```{r search-treatment-in-turkey, fig.cap="Figure 10. Google Searches for 'Treatment in Turkey'"}
+
+# Figure 10
+
+ggplot(df, aes(x = Date))                   +
+    
+    geom_line(aes(y = treatmentInTurkey),
+              color = "firebrick3",
+              size  = 0.75)                 +
+    
+    geom_smooth(aes(y   = treatmentInTurkey),
+                method  = "auto")           +
+    
+    labs(y = "Popularity")                  +
+    
+    theme(axis.title.x = element_blank())
+
+
+```
+
+$~$
+
+Finally, a quick conclusion can be made on the healthcare tourism in Turkey by considering the Google searches for "Treatment in Turkey". Constantly increasing interest in the healthcare services in Turkey despite two major exceptional cases in the last ten years poses an important potential for the tourism of the country.
+
+$~$
+
+# Conclusion
+
+Despite the negative circumstances in the last decade, tourism still appears as one of the pillars of Turkey's economy. By taking initiative to improve both the negative and positive aspects of the current situation, Turkey can benefit from the available natural and historical gift it has as a tool for the economic recuperation of the country, keeping in the mind that it is impossible to provide an economic development by focusing on just one source of income. As the above analysis suggests, advertising the local attractions digitally is an important initiative that both the government and private tourism companies can take. Preserving the positive trend in the healthcare tourism and security in the country, since "Is Turkey Safe to Travel?" is another popular search query in Google Trends, is also an important keynote for the government.
+
+$~$
