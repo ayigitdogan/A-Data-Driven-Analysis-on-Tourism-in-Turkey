@@ -24,7 +24,7 @@ Being famous for a variety of historical sites and seaside resorts along its Aeg
 
 This data-driven work is dedicated to investigating insights on the number of visitors and tourism incomes of Turkey from 2009 to 2022 by taking the factors such as exchange rates and customer price indices into consideration.
 
-The data used in the analysis are extracted from [Electronic Data Delivery System](https://evds2.tcmb.gov.tr/), which is provided by the Central Bank of the Republic of Turkey, and from [Google Trends](https://trends.google.com/trends/). One can access the *xlsx* and *csv* files [here](https://github.com/ayigitdogan/A-Data-Driven-Analysis-on-Tourism-in-Turkey/Data).
+The data used in the analysis are extracted from [Electronic Data Delivery System](https://evds2.tcmb.gov.tr/), which is provided by the Central Bank of the Republic of Turkey, and from [Google Trends](https://trends.google.com/trends/). One can access the *xlsx* and *csv* files [here](https://github.com/ayigitdogan/A-Data-Driven-Analysis-on-Tourism-in-Turkey/tree/main/Data).
 
 $~$
 
